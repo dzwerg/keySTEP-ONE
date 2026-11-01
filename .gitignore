@@ -1,0 +1,26 @@
+# Generated binaries and copied SDK libraries
+app/build/
+*.fwsc
+*.elf
+*.o
+*.obj
+*.dis
+*.map
+*.log
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+.idea/
+.DS_Store
+# No credentials or toolchains
+.env
+.env.*
+*.pem
+*.p12
+*.key
+# Local developer backup files
+*.before-*
+*.bak
+*.orig
+*~
