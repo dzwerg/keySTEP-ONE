@@ -17,8 +17,8 @@ o2 = ["dsp/gm.c", "dsp/eas/eas_chorus.c", "dsp/eas/eas_chorusdata.c", "dsp/eas/e
       "dsp/eas/eas_smf.c", "dsp/eas/eas_smfdata.c", "dsp/eas/eas_sndlibmgt.c", "dsp/eas/eas_voicemgt.c",
       "dsp/eas/eas_wtengine.c", "dsp/eas/eas_wtsynth.c", "dsp/eas/wt_200k_G.c"]
 # the site
-tagline = "BLE MIDI / AFTERTOUCH"
-repo = "https://github.com/charlesvestal/fm1-ctl"
+tagline = "4-TRACK ARRANGER / LIVE PLAY / USB & BLE MIDI"
+repo = "https://github.com/dzwerg/keySTEP-ONE"
 licence = "MPL-2.0"
 credits = "Built on fm1-base and felucca-bsp, from Felucca by Leo Kuroshita (Hügelton Instruments); the sounds are Sonivox EAS."
 usb_audio_in = false
