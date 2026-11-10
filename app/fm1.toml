@@ -1,6 +1,6 @@
 # CTL-1's build settings (fm1-base's tools/build.py: ./build.sh)
 name = "keySTEP-ONE"                   # the build's files: ctl.fwsc, ctl-usb.fwsc (--no-ble), ctl-X.Y.fwsc
-id_prefix = "FM-1_734"           # keySTEP ONE FMHub identity; version appended by build
+id_prefix = "FM-1_74"           # keySTEP ONE FMHub identity; version appended by build
 usb_manufacturer = "DZ"
 usb_product = "keySTEP ONE"
 ble = true                     # Bluetooth MIDI; --no-ble leaves it out
