@@ -32,7 +32,7 @@ The black key alone **never** changes the playing pattern. Press a white key to 
 
 ## Downloads and installation
 
-Download `keystep-one-0.5.42.fwsc` from GitHub Releases after publication. The release is currently a draft.
+Download `keystep-one-0.5.42.fwsc` from GitHub Releases after publication. See the Releases page for downloads.
 
 Read [Flashing instructions](docs/FLASHING.md) and the [Beta release notes](CHANGELOG.md) before installing.
 
