@@ -1,0 +1,6 @@
+{
+  "what": "A four-track MIDI arranger and controller for the M-VAVE FM-1. Create patterns, songs and albums, switch patterns live, route USB and Bluetooth MIDI, and play sounds with the onboard General MIDI synth.",
+  "author": "dzwerg",
+  "kinds": ["groove", "synth"],
+  "color": "#FF7A00"
+}
