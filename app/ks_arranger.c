@@ -89,10 +89,13 @@ typedef struct {
 static ks_mix_slot_t ks_gp_first[KS_TRACKS] PLAT_POOL;
 static ks_mix_slot_t ks_gp_other[KS_TRACKS][2] PLAT_POOL;
 static ksg_grid_t ks_gp_snapshot PLAT_POOL;
-static ks_gp_lane_t ks_gp_lane[KS_TRACKS];
-static uint8_t ks_gp_enabled,ks_gp_underrun,ks_gp_repeat=1u,ks_gp_finished;
-static uint8_t ks_external_player;
-static uint32_t ks_gp_loop_begin;
+/* Shared by the audio-tick ISR and UI/main loop. Without volatile the
+ * target optimizer is free to reuse stale stop/repeat and prefetch flags.
+ * Multi-field ready/slot publication remains protected by plat_lock(). */
+static volatile ks_gp_lane_t ks_gp_lane[KS_TRACKS];
+static volatile uint8_t ks_gp_enabled,ks_gp_underrun,ks_gp_repeat=1u,ks_gp_finished;
+static volatile uint8_t ks_external_player;
+static volatile uint32_t ks_gp_loop_begin;
 
 #define KS_GRID_TYPE 12u
 #define KS_GRID_MAGIC 0x31475343u /* CSG1 */
@@ -695,7 +698,7 @@ static int ks_gp_read(unsigned tr,unsigned col,ks_mix_slot_t *dst){
 static void ks_gp_rewind(void){
     unsigned tr;
     for(tr=0u;tr<KS_TRACKS;tr++){
-        ks_gp_lane_t *l=&ks_gp_lane[tr];
+        volatile ks_gp_lane_t *l=&ks_gp_lane[tr];
         l->col=0;l->ready=0;l->ready_col=0;l->begin=0;
         l->current=0;l->finished=ks_gp_snapshot.count[tr]==0u;
     }
@@ -727,7 +730,7 @@ static void ks_gp_poll_prefetch(void){
     unsigned tr;
     if(!ks_gp_enabled)return;
     for(tr=0u;tr<KS_TRACKS;tr++){
-        ks_gp_lane_t *l=&ks_gp_lane[tr];
+        volatile ks_gp_lane_t *l=&ks_gp_lane[tr];
         uint16_t col;uint8_t buffer;uint32_t f;
         if(l->finished||l->ready||l->col+1u>=ks_gp_snapshot.count[tr])continue;
         col=(uint16_t)(l->col+1u);
@@ -754,7 +757,7 @@ static void ks_gp_emit_step(uint32_t pos){
     uint32_t local=pos-ks_gp_loop_begin;
     /* Transition phase; no disk operations and no large memory copies. */
     for(tr=0u;tr<KS_TRACKS;tr++){
-        ks_gp_lane_t *l=&ks_gp_lane[tr];
+        volatile ks_gp_lane_t *l=&ks_gp_lane[tr];
         if(l->finished)continue;
         while(local>=l->begin+ks_gp_slot(tr,l->current)->length){
             l->begin+=ks_gp_slot(tr,l->current)->length;
@@ -777,7 +780,7 @@ static void ks_gp_emit_step(uint32_t pos){
         ks_gp_loop_begin=pos;ks_gp_rewind();local=0u;
     }
     for(tr=0u;tr<KS_TRACKS;tr++){
-        const ks_gp_lane_t *l=&ks_gp_lane[tr];
+        const volatile ks_gp_lane_t *l=&ks_gp_lane[tr];
         const ks_mix_slot_t *slot;
         unsigned n,j;uint32_t step;
         if(l->finished)continue;

@@ -75,7 +75,7 @@ static struct {
     uint8_t home_pg; /* KSTEP_HOME_DUAL_V0511: 0 pattern lanes, 1 original piano; volatile */
     uint8_t arr_pg;  /* ARRANGER page, SELECT cycles */
     uint8_t arr_row; /* highlighted row, ALGO moves it */
-    uint8_t setup_pg;                  /* Setup's pages (SELECT): 0 the settings, 1 Touch, 2 Bluetooth */
+    uint8_t setup_pg;                  /* GLO: 0 SETUP, 2 BLUETOOTH, 3 PROGRAM CHANGE (1 legacy touch) */
     uint8_t last_vel;                  /* the last note's velocity from the keys (Touch shows it) */
     uint8_t track;                     /* the sequencer track the Sequencer page edits */
     uint32_t btn, keys;
@@ -592,7 +592,7 @@ static void usb_host_events(void)
 /* what a knob edits: one of these */
 enum { K_VAL0, K_VAL1, K_VAL2, K_VAL3, K_CC0, K_CC1, K_CC2, K_CC3, K_ROOT, K_SCALE, K_VEL, K_HUMAN,
        K_AMODE, K_ARATE, K_AOCT, K_ARP, K_STEPS, K_HITS, K_ROT, K_NOTE, K_CLOCK, K_SEQCH, K_MASTER, K_GLOW,
-       K_TEMPO, K_SOUND, K_SNDIN, K_TOUCH, K_CURVE, K_ATM, K_ATS, K_DEV, K_BT, K_USBMODE, K_ARRTRACK, K_ARRPAT, K_ARRLEN, K_ARRCHAN, K_ARRMENU, K_EPAT, K_ELEN, K_EGATE, K_ECHANCE, K_ENOTE, K_EVELOCITY, K_HOMECHAN, K_HOMEMODE, K_HOMESUST, K_ARRMODE, K_ASLOT, K_ASONG, K_ACOUNT, K_SOVERLAY, K_PMPAT, K_PMLEN, K_PMTRACK, K_SGSONG, K_SGPAT, K_JPSLOT, K_JPLOOP, K_AGALBUM, K_AGSONG, K_AGVALUE, K_LVOL1, K_LVOL2, K_LVOL3, K_LVOL4, K_NONE };
+       K_TEMPO, K_SOUND, K_SNDIN, K_TOUCH, K_CURVE, K_ATM, K_ATS, K_DEV, K_BT, K_USBMODE, K_ARRTRACK, K_ARRPAT, K_ARRLEN, K_ARRCHAN, K_ARRMENU, K_EPAT, K_ELEN, K_EGATE, K_ECHANCE, K_ENOTE, K_EVELOCITY, K_HOMECHAN, K_HOMEMODE, K_HOMESUST, K_ARRMODE, K_ASLOT, K_ASONG, K_ACOUNT, K_SOVERLAY, K_PMPAT, K_PMLEN, K_PMTRACK, K_SGSONG, K_SGPAT, K_JPSLOT, K_JPLOOP, K_AGALBUM, K_AGSONG, K_AGVALUE, K_LVOL1, K_LVOL2, K_LVOL3, K_LVOL4, K_PCEXT, K_PCINT, K_PCCHAN, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {K_HOMECHAN, K_HOMESUST, K_TEMPO, K_HOMEMODE},
     {K_ROOT, K_SCALE, K_NONE, K_NONE},
@@ -606,7 +606,9 @@ static const uint8_t VIEW_KNOB[NVIEWS][4] = {
 };
 /* Setup's third page (FM1B_BLE): a Bluetooth MIDI device (FM1B_BLE_CENTRAL), and Bluetooth on or off */
 static const uint8_t BT_KNOB[4] = {FM1B_BLE_CENTRAL ? K_DEV : K_NONE, K_USBMODE, K_NONE, K_BT};
-#define SETUP_PAGES (FM1B_BLE ? 2 : 1)
+/* GLO short cycles the displayed pages: SETUP -> BLUETOOTH -> PROGRAM.
+ * setup_pg == 1 (legacy TOUCH) is retained for compatibility, not visited. */
+#define SETUP_PAGES (FM1B_BLE ? 3 : 2)
 /* Bluetooth in a word, for the ports, Setup and a screen reader: "off" (by the player), "stopped" (after a crash:
  * SAVE starts it), "starting", "failed", "connected" (a computer, or a device), "ready" */
 static int bt_stopped(void) { return FM1B_BLE && !proj.ble_off && plat_ble_state() == BLE_OFF; }
@@ -647,8 +649,12 @@ static struct {
 /* Player: SELECT chooses SONG/ALBUM; K1 picks EXISTING S/M or album;
  * K4 ONCE/LOOP. Track is not encoded into saved pattern data. */
 static struct {uint8_t category,kind,loop,has_song,has_album;uint16_t song,album;
-    uint16_t album_pos,album_len;uint8_t manual_bpm,manual_set,base_bpm,running,program_active,saved_program[16];
+    uint16_t album_pos,album_len,once_remaining,once_total,once_started;
+    uint8_t album_native,once_done,manual_bpm,manual_set,base_bpm,running,program_active,program_channel,saved_program[16];
 } jp;
+#ifdef PLAT_HOST
+static uint8_t jp_host_album_fixture; /* host-only mock of stored S-song reads */
+#endif
 static void jp_refresh(void){ui.sig[0]=ui.sig[1]=ui.sig[2]=ui.sig[3]=0;}
 /* Enumerate saved new albums and legacy albums in one ordered list. */
 static int jp_album_next(uint16_t from,int dir,uint16_t *out){
@@ -704,6 +710,11 @@ static void jp_move(int delta){
  * event song. Sequencing is coordinated from main loop, never AB16 in ISR. */
 static int jp_prepare_s(uint16_t id){
     int grid_rc;
+#ifdef PLAT_HOST
+    /* The host fixture drives the genuine UI song-transition machinery.
+     * Skip only AB16 reads, which are not part of this timing test. */
+    if(jp_host_album_fixture){(void)id;ks_gp_enabled=1u;ks_gp_finished=0u;ks_gp_underrun=0u;return 0;}
+#endif
     if(!ks_arr_song_exists(id))return -1;
     if(ks_arr_set_mode(1u)<0||ks_arr_load_song(id)<0)return -1;
     ks_arr_grid_set_loop(0); /* Player controls album/song repeat itself. */
@@ -717,11 +728,15 @@ static void jp_restore_program(void){
     unsigned ch;
     if(!jp.program_active)return;
     jp.program_active=0u;
-    for(ch=0;ch<16u;ch++)
-        ctl_send(pkt3(0xc0u|ch,jp.saved_program[ch],0),TO_USB|TO_BLE|TO_SYNTH);
+    for(ch=0;ch<16u;ch++){
+        if(jp.program_channel<16u && ch!=jp.program_channel)continue;
+        ks_player_program_send(pkt3(0xc0u|ch,jp.saved_program[ch],0),TO_USB|TO_BLE|TO_SYNTH);
+    }
 }
 static int jp_album_song(int reset){
     uint8_t bpm=0,program=0,has_bpm=0,has_program=0;
+    /* ONCE is a one-way cursor. Under no circumstances wrap when exhausted. */
+    if(jp.once_done && !jp.loop)return -1;
     unsigned visited=0;
     if(reset){jp.album_pos=0;}
     jp_restore_program(); /* previous instrument block must not leak */
@@ -748,61 +763,95 @@ static int jp_album_song(int reset){
         }
         if(has_program){
             unsigned ch;
+            jp.program_channel=ks_pc_player_channel();
             for(ch=0;ch<16u;ch++)jp.saved_program[ch]=ksal_program_current((uint8_t)ch);
             jp.program_active=1u;
             if(jp.kind==1)ksm2_override_program(program);
-            else for(ch=0;ch<16u;ch++)
-                ctl_send(pkt3(0xc0u|ch,program,0),TO_USB|TO_BLE|TO_SYNTH);
+            else for(ch=0;ch<16u;ch++){
+                if(jp.program_channel<16u && ch!=jp.program_channel)continue;
+                ks_player_program_send(pkt3(0xc0u|ch,program,0),TO_USB|TO_BLE|TO_SYNTH);
+            }
         }
         return 0;
     }
     return -1; /* cannot spin forever on an all-control album */
 }
+/* Number of songs AFTER the currently playing song, ignoring BPM/INST blocks.
+ * Count is latched when PLAYER starts; it is not inferred from a wrapped cursor
+ * or re-probed from flash after a transition. */
+static uint16_t jp_album_songs_after(uint16_t pos)
+{
+    uint16_t i,n=0;
+    if (jp.album_native) {
+        return pos+1u<jp.album_len ? jp.album_len-pos-1u : 0u;
+    }
+    for(i=pos;i<ksal.count;i++)
+        if(ksal.e[i].kind==KSAL_S || ksal.e[i].kind==KSAL_M) n++;
+    return n;
+}
 static int jp_prepare(void){
+    jp.once_remaining=0;
+    jp.once_total=0;
+    jp.once_started=0;
+    jp.once_done=0;
     if(jp.category){
         if(!jp.has_album)return -1;
         if(ksal_exists(jp.album)){
+            uint16_t i,all=0;
             if(ksal_load(jp.album)<0)return -1;
+            jp.album_native=0;
             jp.base_bpm=proj.tempo;
             jp.album_len=ksal.count;
+            for(i=0;i<ksal.count;i++)
+                if(ksal.e[i].kind==KSAL_S || ksal.e[i].kind==KSAL_M) all++;
+            if(!all)return -1;
+            jp.once_total=all;
+            jp.once_started=1u;
+            jp.once_remaining=(uint16_t)(all-1u);
             return jp_album_song(1);
         }
         /* Legacy native albums are read-only-compatible, S-only. */
         if(ks_arr_set_mode(2u)<0||ks_arr_load_album(jp.album)<0)return -1;
+        jp.album_native=1;
         jp.album_len=ks_arr_album_count();jp.album_pos=0u;
         if(!jp.album_len)return -1;
+        jp.once_total=jp.album_len;
+        jp.once_started=1u;
+        jp.once_remaining=(uint16_t)(jp.album_len-1u);
         return jp_prepare_s(ks_arr_album_get(0u));
     }
     if(!jp.has_song)return -1;
     if(jp.kind==1)return ksm2_prepare(jp.song);
     return jp_prepare_s(jp.song);
 }
-/* Album ONCE must stop after the LAST *song*, not after a trailing BPM
- * or INSTRUMENT control block. Legacy S-only albums count their songs.
- * LOOP intentionally permits wrap; SONG playback keeps its own behavior. */
+/* The SONG player may repeat; ALBUM ONCE is a finite pass, independent of
+ * BPM/INSTRUMENT blocks and both S-grid and imported M2 completion paths. */
 static int jp_album_has_next(void){
-    uint16_t pos;
-    if(!jp.category || jp.loop)return 1;
-    if(ksal_exists(jp.album)){
-        for(pos=jp.album_pos;pos<ksal.count;pos++){
-            uint8_t kind=ksal.e[pos].kind;
-            if(kind==KSAL_S || kind==KSAL_M)return 1;
-        }
-        return 0;
-    }
-    return jp.album_pos+1u<jp.album_len;
+    if(jp.once_done && !jp.loop)return 0;
+    if(!jp.category)return !!jp.loop;
+    /* Two independent conditions must permit the next song. Even if one
+     * counter/cursor is stale, ONCE cannot wrap after the declared total. */
+    return jp.loop || (jp.once_remaining>0u && jp.once_started<jp.once_total);
 }
 static int jp_next_after_end(void){
-    /* Final STOP guard shared by M2 and native S/grid completion paths. */
+    int rc;
+    /* A hard final-song guard shared by M2 and native S/grid completion. */
     if(!jp_album_has_next())return -1;
     if(jp.category){
-        if(ksal_exists(jp.album))return jp_album_song(0);
-        if(jp.album_pos+1u<jp.album_len)jp.album_pos++;
-        else if(jp.loop && jp.album_len)jp.album_pos=0u;
-        else return -1;
-        return jp_prepare_s(ks_arr_album_get((uint8_t)jp.album_pos));
+        if(!jp.album_native){
+            rc=jp_album_song(0);
+        } else {
+            if(jp.album_pos+1u<jp.album_len)jp.album_pos++;
+            else if(jp.loop && jp.album_len)jp.album_pos=0u;
+            else return -1;
+            rc=jp_prepare_s(ks_arr_album_get((uint8_t)jp.album_pos));
+        }
+        if(!rc){
+            if(jp.once_started<65535u)jp.once_started++;
+            if(!jp.loop && jp.once_remaining)jp.once_remaining--;
+        }
+        return rc;
     }
-    if(!jp.loop)return -1;
     return jp_prepare();
 }
 
@@ -1173,6 +1222,8 @@ static int view_knob(int i)
 {
     if (fx_cc())
         return K_CC0 + i;
+    if (ui.view == V_SETUP && ui.setup_pg == 3)
+        return i == 0 ? K_PCEXT : i == 1 ? K_PCINT : i == 2 ? K_PCCHAN : K_NONE;
     if (ui.view == V_SETUP && ui.setup_pg == 2)   /* (a device only while Bluetooth runs) */
         return i == 0 && (proj.ble_off || plat_ble_state() != BLE_READY) ? K_NONE : BT_KNOB[i];
     if (ui.view == V_ARR) {
@@ -1281,6 +1332,9 @@ static int knob_get(int k)
     case K_DEV: return btdev_pick();
     case K_BT: return !proj.ble_off;
     case K_USBMODE: return usb_host_requested;
+    case K_PCEXT: return ks_pc_out_external();
+    case K_PCINT: return ks_pc_out_internal();
+    case K_PCCHAN: return (int)ks_pc_player_channel()+1;
     default: return 0;
     }
 }
@@ -1315,6 +1369,7 @@ static void knob_range(int k, int *lo, int *hi)
     case K_SOVERLAY: *lo=0;*hi=1;break;
     case K_ARRMODE: *lo=0;*hi=2;break;
     case K_ARRLEN: *lo=1; *hi=8; break;
+    case K_PCCHAN: *lo=1; *hi=17; break;
     case K_ARRCHAN: *lo=1; *hi=17; break;
     case K_HOMECHAN: *lo=1; *hi=17; break;
     case K_HOMEMODE: *hi=2; break;
@@ -1326,7 +1381,7 @@ static void knob_range(int k, int *lo, int *hi)
     case K_AMODE: *hi = NARP - 1; break;
     case K_ARATE: *hi = NRATE - 1; break;
     case K_AOCT: *lo = 1; *hi = 3; break;
-    case K_SOUND: case K_SNDIN: case K_TOUCH: case K_BT: case K_USBMODE: *hi = 1; break;
+    case K_SOUND: case K_SNDIN: case K_TOUCH: case K_BT: case K_USBMODE: case K_PCEXT: case K_PCINT: *hi = 1; break;
     case K_DEV: *hi = btdev_count() > 1 ? btdev_count() - 1 : 0; break;
     case K_CURVE: case K_ATS: *lo = -5; *hi = 5; break;
     case K_ATM: *hi = NAT - 1; break;
@@ -1380,6 +1435,9 @@ static void knob_name(int k, char *b)
     else if (k == K_SOVERLAY) put_s(b,"PAT LAYER");
     else if (k == K_ARRLEN) put_s(b, "LENGTH");
     else if (k == K_ARRCHAN) put_s(b, "CHANNEL");
+    else if (k == K_PCEXT) put_s(b, "PC EXT");
+    else if (k == K_PCINT) put_s(b, "PC INT");
+    else if (k == K_PCCHAN) put_s(b, "SONG CH");
     else if (k == K_HOMECHAN) put_s(b, "MIDI CH");
     else if (k == K_HOMEMODE) put_s(b, "TRACK");
     else if (k == K_HOMESUST) put_s(b, "SUST");
@@ -1440,6 +1498,8 @@ static void knob_text(int k, char *b)
     case K_SNDIN: put_s(b, v ? "Plays" : "Ignored"); break;
     case K_TOUCH: put_s(b, v ? "Keys" : "Fixed"); break;
     case K_BT: put_s(b, v ? "On" : "Off"); break;
+    case K_PCEXT: case K_PCINT: put_s(b, v ? "ON" : "OFF"); break;
+    case K_PCCHAN: if(v==17)put_s(b,"ALL");else put_u(b,(uint32_t)v);break;
     case K_USBMODE: put_s(b, v ? (plat_usb_host_state() == USBH_CONNECTED ? "MIDI" :
                     usb_host_reason == 1 ? "CHECK" :
                     usb_host_reason == 2 ? "LOW" :
@@ -1555,6 +1615,17 @@ static void knob_set(int k, int v)
         case K_JPLOOP:
             if(ui.view==V_JUKE){
                 jp.loop=(uint8_t)!!v;
+                /* Switching LOOP -> ONCE during playback means finish THIS
+                 * album pass, never wrap to the first song again. */
+                if(!jp.loop && jp.category && jp.running){
+                    jp.once_remaining=jp_album_songs_after(jp.album_pos);
+                    jp.once_total=(uint16_t)(jp.once_started+jp.once_remaining);
+                    jp.once_done=0u;
+                }
+                /* SONG grid has a separate EDITOR repeat flag. In PLAYER, even
+                 * an ALBUM LOOP must advance songs rather than re-loop a grid.
+                 * Ensure an editor's stale flag cannot ignore K4. */
+                if(jp.running)ks_arr_grid_set_loop(0);
                 /* Updating LOOP during PAUSE must retain cursor and held notes. */
                 if(kstep_paused && ks_okp_ready && ks_okp_kind!=0u)
                     okp_set_seek_loop(&ks_okp,jp.loop);
@@ -1753,6 +1824,9 @@ static void knob_set(int k, int v)
             plat_usb_host(v);
             say("USB", v ? "HOST REQUESTED" : "DEVICE REQUESTED");
             return;  /* Do NOT save as a project setting. */
+        case K_PCEXT: ks_pc_out_set(1u,(uint8_t)v); break;
+        case K_PCINT: ks_pc_out_set(0u,(uint8_t)v); break;
+        case K_PCCHAN: ks_pc_player_channel_set((uint8_t)(v-1)); break;
         case K_DEV: btdev_choose(v); return;      /* (a choice, not a setting) */
         case K_BT:
             proj.ble_off = (uint8_t)!v;
@@ -2055,13 +2129,32 @@ static void button_up(int b)
         break;
     case B_SEQ:
         if(kstep_held_once & (1u<<B_SEQ))break;
-        /* SEQ short is the PLAYER, not the original drum sequencer. */
+        /* SEQ short is the PLAYER, not the original drum sequencer.
+         * Never inherit an actively looping SONG EDITOR transport: that
+         * player uses ks_gp_repeat, whereas PLAYER uses jp.loop. */
+        if(ui.playing && !jp.running && ks_arr_grid_play_active()){
+            engine_play(0);
+            ks_arr_grid_play_stop();
+            ksm2_stop();
+            ks_live_notes_clear();
+            ui.playing=0u;
+            kstep_paused=0u;
+            ks_arr_grid_set_loop(0);
+        }
         if(ui.view==V_STEP)ks_ed_drop_key_holds();
         set_view(V_JUKE);jp_first();
         break;
     case B_ARP: /* ARP only on longpress */ break;
     case B_EDIT: /* SOUND only on longpress */ break;
-    case B_GLO: if(ui.view==V_SETUP && FM1B_BLE)ui.setup_pg=(uint8_t)(ui.setup_pg==2?0:2);break;
+    case B_GLO:
+        /* Long GLO opens SETUP; its release must not skip page 1. */
+        if(kstep_held_once & (1u << B_GLO))break;
+        if(ui.view==V_SETUP){
+            ui.setup_pg=(uint8_t)(ui.setup_pg==0u?(FM1B_BLE?2u:3u):
+                     ui.setup_pg==2u?3u:0u);
+            ui.sig[1]=ui.sig[2]=0u;
+        }
+        break;
     case B_PLAY: case B_REC:
         if (!(kstep_held_once & (1u << b))) {
             if (b == B_REC) {
@@ -2077,12 +2170,18 @@ static void button_up(int b)
             } else {
                 int start=!ui.playing;
                 if(start && ui.view==V_JUKE){
+                    /* Clear any editor-only repeat state BEFORE preparing a
+                     * SONG or ALBUM. K4 governs repetition of whole objects. */
+                    ks_arr_grid_set_loop(0);
+                    ks_arr_grid_play_stop();
                     jp.manual_set=0u; /* new START resets manual tempo policy */
                     if(jp_prepare()<0){warn("PLAYER","EMPTY / SAVE FIRST");break;}
                     jp.running=1u;
+                    ks_arr_grid_set_loop(0);
                 }
                 if(start && ui.view==V_ARR && ui.arr_pg==2u && !sg.active_menu){
                     int rc;
+                    jp.running=0u; /* explicit editor playback is NOT PLAYER */
                     if(sg.stage!=SG_BROWSE){warn("SONG","EXIT MENU FIRST");break;}
                     ks_arr_grid_set_loop(1); /* EDITOR PLAY always loops */
                     rc=ks_arr_grid_play_prepare();
@@ -2227,6 +2326,9 @@ static void input(void)
     if (btn || keys || ch)
         ui.act_t = plat_ms();
     midi_in();
+    /* PLAY owns the album/song boundary; never let an editor's stale grid
+     * repeat bit keep a song alive indefinitely behind the ONCE display. */
+    if(jp.running)ks_arr_grid_set_loop(0);
     {int m2_end=ksm2_poll();
     if(m2_end && ui.playing){
         int rc=-1;
@@ -2241,7 +2343,11 @@ static void input(void)
             }
         }
         if(rc==0){engine_play(1);ui.playing=1;}
-        else{ui.playing=0;jp.running=0u;jp_restore_program();warn(m2_end<0?"M-SONG ERROR":"ALBUM / SONG","END / STOP");}
+        else{
+            ui.playing=0;jp.running=0u;
+            if(jp.category && !jp.loop && m2_end>0)jp.once_done=1u;
+            jp_restore_program();warn(m2_end<0?"M-SONG ERROR":"ALBUM / SONG", "END / STOP");
+        }
     }}
     if(!ksm2_active() && ks_arr_poll() && ui.playing){
         int fail=ks_arr_grid_play_underrun();
@@ -2249,9 +2355,11 @@ static void input(void)
         engine_play(0);ui.playing=0;ks_arr_grid_play_stop();ks_arr_offs();ks_live_notes_clear();
         if(!fail && jp.running && (jp.category==1u || jp.kind==0u) && jp_album_has_next()){
             if(jp_next_after_end()==0){ui.playing=1;engine_play(1);}
-            else{jp.running=0u;jp_restore_program();}
+            else{jp.running=0u;if(jp.category && !jp.loop && !fail)jp.once_done=1u;jp_restore_program();}
         }else{
-            jp.running=0u;jp_restore_program();
+            jp.running=0u;
+            if(jp.category && !jp.loop && !fail)jp.once_done=1u;
+            jp_restore_program();
         }
     }
     master_pot();
@@ -2973,6 +3081,15 @@ static void draw_setup(void)                     /* the settings below; what the
 {
     char t[40], *b;
     int32_t y = 38;
+    if (ui.setup_pg == 3) {
+        cv_text(10, 2, &FONT_B, "PROGRAM CHANGE", K_TEXT);
+        cv_text(10, 28, &FONT_S, "MIDI program routing", K_DIM);
+        cv_text(10, 52, &FONT_XS, "KNOB 1 EXT: USB + BLE", K_COOL_D);
+        cv_text(10, 69, &FONT_XS, "KNOB 2 INT: SONIVOX GM", K_COOL_D);
+        cv_text(10, 86, &FONT_XS, "KNOB 3 SONG CH: 1-16 / ALL", K_COOL_D);
+        cv_text(10, 109, &FONT_XS, "SAVE: store settings", K_DIM);
+        return;
+    }
     if (ui.setup_pg == 2) {
         draw_bt();
         return;
@@ -3309,10 +3426,11 @@ static void draw_main(void)
         h = hash(hash(h, gm_voices | proj.sound << 8 | proj.in_mute << 12 |
                      (uint32_t)ks_program_get(ks_selected_track) << 16 |
                      (uint32_t)ks_selected_track<<24),plat_cpu_pct());
-    if (ui.view == V_SETUP)
+    if (ui.view == V_SETUP) {
         h = hash(h, (uint32_t)usb_host_requested | (uint32_t)plat_usb_host_state() << 8 |
                        (uint32_t)usb_host_reason << 16);
         h = hash(h, plat_usb_host_diag());
+    }
     if (ui.view == V_SETUP && ui.setup_pg == 2) {
         char name[21];
         int k, rssi = 0;
@@ -3370,6 +3488,19 @@ static void draw_status(void)
     if (ui.view == V_PLAY)
         h = hash(h, (uint32_t)ks_home_display_block() | (uint32_t)ks_arr_blocks()<<8 |
                      (uint32_t)ks_pattern_num<<16 | (uint32_t)ks_recording<<24);
+    /* DIAG v0.5.41: status redraw MUST follow player state. In v0.5.40
+     * the draw body checked jp.running, but the status hash ignored it.
+     * As a result the live trace could remain completely invisible. */
+    if (ui.view == V_JUKE) {
+        h = hash(h, (uint32_t)jp.category | (uint32_t)jp.running<<1 |
+                       (uint32_t)jp.loop<<2 | (uint32_t)jp.kind<<3 |
+                       (uint32_t)ui.playing<<4 | (uint32_t)eng_running()<<5 |
+                       (uint32_t)ksm2_active()<<6 |
+                       (uint32_t)ks_gp_repeat<<7 | (uint32_t)ks_gp_finished<<8);
+        h = hash(h, (uint32_t)jp.once_started | (uint32_t)jp.once_total<<16);
+        h = hash(h, (uint32_t)jp.once_remaining | (uint32_t)jp.once_done<<16 |
+                       (uint32_t)jp.album_pos<<17);
+    }
     if (h == ui.sig[3])
         return;
     ui.sig[3] = h;
@@ -3392,8 +3523,10 @@ static void draw_status(void)
         return;
     }
     if(ui.view==V_JUKE){
+        /* v0.5.42: normal status label; leave all v0.5.41 transport,
+         * ISR synchronization and redraw logic exactly unchanged. */
         cv_text(8,vc(&FONT_XS,0,STAT_H),&FONT_XS,
-             jp.category?"ALBUM / SELECT":"SONG / SELECT",K_TEXT);
+                jp.category?"ALBUM / SELECT":"SONG / SELECT",K_TEXT);
         cv_blit(0,STAT_Y);return;
     }
     if (ui.view == V_ARR) {
@@ -3468,10 +3601,12 @@ static void knob_tag(char *t, int *dots, int *cur)
     } else if (ui.view == V_SETUP) {
         if (ui.setup_pg == 2)
             put_s(t, "BLUETOOTH");
-        else if (ui.setup_pg)
+        else if (ui.setup_pg == 3)
+            put_s(t, "PROGRAM CHANGE");
+        else if (ui.setup_pg == 1)
             put_s(t, "TOUCH");
         *dots = SETUP_PAGES;
-        *cur = ui.setup_pg == 2 ? 1 : 0;
+        *cur = ui.setup_pg == 3 ? SETUP_PAGES-1 : ui.setup_pg == 2 ? 1 : 0;
     }
 }
 static void footer_text(const char **a, const char **b, const char **c)
@@ -3504,6 +3639,13 @@ static void footer_text(const char **a, const char **b, const char **c)
     case V_LIVE: *a="BLACK: BANK 1-11";*b="WHITE: PAT 1-16";*c="KNOBS: TR1-4 VOL";break;
     case V_STEP: *a="STEP LEDS"; *b="HOLD: NOTE/VELO/GATE"; *c="REC HOLD: EXIT"; break;
     default:
+        if (ui.view == V_SETUP && ui.setup_pg == 3) {
+            *a = "GLO: NEXT PAGE";
+            *b = "K1: EXT PC / K2: INT PC";
+            *c = "K3: SONG CH / SAVE";
+            *c = "SAVE: STORE";
+            break;
+        }
         if (ui.setup_pg == 2) {
             *a = "SELECT: SETUP";
             if (bt_stopped())
@@ -3528,7 +3670,7 @@ static void footer_text(const char **a, const char **b, const char **c)
 static int knob_switch(int k)                    /* a few named positions: pips, not an arc */
 {
     return k == K_HOMEMODE || k == K_HOMESUST || k == K_ARP || k == K_CLOCK || k == K_GLOW || k == K_SOUND || k == K_SNDIN || k == K_AOCT ||
-           k == K_TOUCH || k == K_ATM || k == K_BT || k == K_USBMODE;
+           k == K_TOUCH || k == K_ATM || k == K_BT || k == K_USBMODE || k == K_PCEXT || k == K_PCINT;
 }
 
 static void draw_knobs(void)
@@ -3880,6 +4022,10 @@ static void sp_page(void)
         sp_cat(t);
         return;
     }
+    if (ui.view == V_SETUP && ui.setup_pg == 3) {
+        sp_cat("Program Change page");
+        return;
+    }
     if (ui.view == V_SETUP && ui.setup_pg == 2) {
         int d = plat_ble_device();
         sp_cat("Bluetooth page");
@@ -3983,7 +4129,7 @@ static void sp_screen(int all)
         sp_cat(proj.in_mute ? ". It plays the keys, not MIDI in" : ". It plays the keys and MIDI in");
         break;
     case V_SETUP:
-        if (ui.setup_pg == 2)
+        if (ui.setup_pg == 2 || ui.setup_pg == 3)
             break;
         if (ui.setup_pg) {
             if (!touch_live)
@@ -4215,7 +4361,7 @@ static void speak_dump(void)
         ui.view = (uint8_t)v;
         for (q = 0; q < (v == V_PLAY ? 2 * NBANKS : v == V_SEQ ? 2 * NTRACKS : v == V_SETUP ? SETUP_PAGES : 1); q++) {
             ui.btn = 0;
-            ui.setup_pg = (uint8_t)(v == V_SETUP ? q : 0);
+            ui.setup_pg = (uint8_t)(v == V_SETUP ? (q==0 ? 0 : FM1B_BLE && q==1 ? 2 : 3) : 0);
             if (v == V_PLAY) {
                 proj.bank = (uint8_t)(q % NBANKS);
                 ui.btn = q >= NBANKS ? 1u << B_FX : 0u;

@@ -23,6 +23,7 @@ enum { OBJ_PROJ, OBJ_PANEL, OBJ_BLE, OBJ_NOBJ };
 #define TO_NOSYNTH (1u << 5)             /* MIDI thru: not to the synth (it gets MIDI in by TO_SYNTH, if asked) */
 void ctl_send(uint32_t pkt, uint32_t to);   /* to: TO_USB | TO_BLE (and TO_SYNTH, TO_NOSYNTH); main loop or the tick.
                                           * Ctl's own notes (to USB or BLE) also play the synth */
+void ks_player_program_send(uint32_t pkt,uint32_t to); /* player-only PC routing policy */
 #define PROJ_MAGIC 0x4C544331u           /* "CTL1" */
 #define PROJ_FORMAT 2u                   /* 2: banks, scale, arpeggiator, sequencer (a format 1 gives the defaults) */
 #define NKNOBS 4
@@ -97,6 +98,14 @@ void ks_program_set(uint8_t track,uint8_t program);
 uint8_t ks_track_mode_get(uint8_t track);
 int ks_track_audible(uint8_t track);
 void ks_track_mode_set(uint8_t track,uint8_t mode);
+/* KSTEP_PC_OUT_V036: independent USB/BLE and Sonivox Program Change policy,
+ * saved in rsv[7..8] without modifying project_t or MUSIC DISK. */
+uint8_t ks_pc_out_external(void);
+uint8_t ks_pc_out_internal(void);
+void ks_pc_out_set(uint8_t external,uint8_t on);
+/* Program Change target for ALBUM INSTRUMENT controls, 0..15 or 16=ALL. */
+uint8_t ks_pc_player_channel(void);
+void ks_pc_player_channel_set(uint8_t ch);
 
 void project_defaults(void);
 int project_load(void);                  /* 0 = loaded; else defaults are in place */

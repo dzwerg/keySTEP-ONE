@@ -24,20 +24,35 @@ static volatile uint8_t in_tick;
 void ctl_send(uint32_t pkt, uint32_t to)
 {
     uint32_t f = 0;
-    ksal_program_observe(pkt); /* remember emitted program state for album overrides */
+    ksal_program_observe(pkt); /* remember actual program messages */
     if (!in_tick)
         f = plat_lock();
     if (to & (TO_USB | TO_BLE))
         plat_midi_send(pkt, to & (TO_USB | TO_BLE));
     if (to & TO_SYNTH)
-        ks_live_notes_packet(pkt); /* a single update per played note */
+        ks_live_notes_packet(pkt);
     if ((to & TO_SYNTH) || ((to & (TO_USB | TO_BLE)) && !(to & TO_NOSYNTH))) {
         uint32_t st = (pkt >> 8) & 0xFFu;
-        if (st >= 0x80u && st < 0xF0u && (proj.sound != SOUND_OFF || st >= 0xB0u))
+        if (st >= 0x80u && st < 0xF0u &&
+            (proj.sound != SOUND_OFF || st >= 0xB0u))
             gm_midi(st, (pkt >> 16) & 0x7Fu, (pkt >> 24) & 0x7Fu);
     }
     if (!in_tick)
         plat_unlock(f);
+}
+/* Only the SONG/ALBUM player routes Program Changes through the GLO K1/K2
+ * switches. Manual PRESETS, initialization, MIDI input and other instruments
+ * remain completely independent of these player-only preferences. */
+void ks_player_program_send(uint32_t pkt,uint32_t to)
+{
+    if (((pkt >> 8) & 0xF0u) == 0xC0u) {
+        if (!ks_pc_out_external()) to &= ~(TO_USB | TO_BLE);
+        if (!ks_pc_out_internal()) {
+            to &= ~TO_SYNTH;
+            to |= TO_NOSYNTH; /* external-only must not also hit Sonivox */
+        }
+    }
+    if (to & (TO_USB | TO_BLE | TO_SYNTH)) ctl_send(pkt,to);
 }
 
 /* ---- the contract */

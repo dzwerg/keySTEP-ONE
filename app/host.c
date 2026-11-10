@@ -28,7 +28,31 @@ static int out_count(int what)           /* since the script's last "out": 0 clo
 int app_expect(const char *what, int *got)
 {
     int g;
-    if (!strcmp(what, "usb_mode"))
+    if (!strcmp(what, "pc_ext"))
+        g = ks_pc_out_external();
+    else if (!strcmp(what, "pc_int"))
+        g = ks_pc_out_internal();
+    else if (!strcmp(what, "pc_chan"))
+        g = ks_pc_player_channel();
+    else if (!strcmp(what, "once_left"))
+        g = jp.once_remaining;
+    else if (!strcmp(what, "once_next"))
+        g = jp_album_has_next();
+    else if (!strcmp(what, "once_done"))
+        g = jp.once_done;
+    else if (!strcmp(what, "once_started"))
+        g = jp.once_started;
+    else if (!strcmp(what, "album_pos"))
+        g = jp.album_pos;
+    else if (!strcmp(what, "album_loop"))
+        g = jp.loop;
+    else if (!strcmp(what, "grid_repeat"))
+        g = ks_gp_repeat;
+    else if (!strcmp(what, "player_running"))
+        g = jp.running;
+    else if (!strcmp(what, "engine_running"))
+        g = eng_running();
+    else if (!strcmp(what, "usb_mode"))
         g = usb_host_requested;
     else if (!strcmp(what, "voices"))         /* the onboard synth's voices sounding */
         g = gm_voices;
@@ -99,6 +123,83 @@ int app_expect(const char *what, int *got)
 int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d)
 {
     (void)a, (void)b, (void)c, (void)d;
+    if (!strcmp(cmd, "once_live_handoff")) {
+        /* LIVE PLAY is pattern transport; it must not be stopped by
+         * the SONG-EDITOR-only isolation on SEQ. */
+        ui.view=V_LIVE;ui.playing=1u;
+        eng.running=1u;jp.running=0u;
+        ks_gp_enabled=0u;ks_gp_repeat=0u;
+        kstep_paused=0u;
+        return 1;
+    }
+    if (!strcmp(cmd, "once_editor_handoff")) {
+        /* An editor had been looping when user opened PLAYER. */
+        ui.view=V_ARR;ui.arr_pg=2u;ui.playing=1u;
+        eng.running=1u;jp.running=0u;
+        ks_gp_enabled=1u;ks_gp_repeat=1u;
+        kstep_paused=0u;
+        return 1;
+    }
+    if (!strcmp(cmd, "once_grid_stale_repeat")) {
+        ks_gp_repeat=1u;return 1;
+    }
+    if (!strcmp(cmd, "once_real_album_start")) {
+        /* Three real transitions through UI's S-player end machinery.
+         * Only flash reads are mocked; BPM and INST in between are real. */
+        jp_host_album_fixture=1u;
+        memset(&ksal,0,sizeof ksal);
+        ksal.count=5u;
+        ksal.e[0].kind=KSAL_S; ksal.e[0].value=0u;
+        ksal.e[1].kind=KSAL_BPM; ksal.e[1].value=100u;
+        ksal.e[2].kind=KSAL_S; ksal.e[2].value=1u;
+        ksal.e[3].kind=KSAL_INST; ksal.e[3].value=3u;
+        ksal.e[4].kind=KSAL_S; ksal.e[4].value=2u;
+        jp.category=1u; jp.loop=0u; jp.album_native=0u;
+        ui.view=V_JUKE;
+        jp.once_total=3u; jp.once_started=1u;
+        jp.once_remaining=2u; jp.once_done=0u;
+        jp.album_pos=1u; jp.album_len=5u; jp.running=1u;
+        jp.program_active=0u; jp.base_bpm=120u;
+        ks_gp_enabled=1u; ks_gp_finished=0u; ks_gp_underrun=0u;
+        proj.clock=CLK_EXT; eng.running=1u;ui.playing=1u;
+        return 1;
+    }
+    if (!strcmp(cmd, "once_real_album_end")) {
+        ks_gp_enabled=1u;ks_gp_finished=1u;ks_gp_underrun=0u;
+        return 1;
+    }
+        /* Host-only synthetic album end paths: no MUSIC DISK writes. */
+    if (!strcmp(cmd, "once_grid_end")) {
+        jp.category=1u; jp.loop=0u; jp.album_native=0u;
+        jp.once_remaining=0u; jp.once_total=1u; jp.once_started=1u; jp.once_done=0u; jp.running=1u;
+        ks_gp_enabled=1u; ks_gp_finished=1u; ks_gp_underrun=0u;
+        ui.playing=1u;
+        return 1;
+    }
+    if (!strcmp(cmd, "once_m2_end")) {
+        jp.category=1u; jp.loop=0u; jp.album_native=0u;
+        jp.once_remaining=0u; jp.once_total=1u; jp.once_started=1u; jp.once_done=0u; jp.running=1u;
+        proj.clock=CLK_EXT;
+        memset(&m2_play,0,sizeof m2_play);
+        m2_play.active=1u; m2_play.have=0u;
+        m2_play.saved_tempo=proj.tempo;
+        ks_arr_external_player_set(1);
+        eng.running=1u; ui.playing=1u;
+        return 1;
+    }
+    if (!strcmp(cmd, "once_count_fixture")) {
+        jp.category=1u; jp.loop=0u; jp.album_native=0u;
+        memset(&ksal,0,sizeof ksal);
+        ksal.count=4u;
+        ksal.e[0].kind=KSAL_S;
+        ksal.e[1].kind=KSAL_BPM;
+        ksal.e[2].kind=KSAL_M;
+        ksal.e[3].kind=KSAL_INST;
+        jp.album_pos=1u;
+        jp.once_remaining=jp_album_songs_after(jp.album_pos);
+        jp.once_total=2u; jp.once_started=1u; jp.once_done=0u;
+        return 1;
+    }
     if (!strcmp(cmd, "splash")) {
         app_splash();
         return 1;

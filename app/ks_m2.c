@@ -412,9 +412,17 @@ void ksm2_override_program(uint8_t prog){
     unsigned ch;
     if(!m2_play.active || prog>=128u)return;
     m2_play.program_locked=1u;
-    for(ch=0;ch<16u;ch++){
-        uint32_t pkt=((uint32_t)0xc0u>>4)|((uint32_t)(0xc0u+ch)<<8)|((uint32_t)prog<<16);
-        ctl_send(pkt,TO_USB|TO_BLE|TO_SYNTH);
+    /* ALBUM INSTRUMENT overrides follow GLO/PROGRAM K3, not all channels
+     * unconditionally. Original PC events embedded in the M-song retain
+     * their recorded channels (and remain subject to EXT/INT gating). */
+    {
+        uint8_t target=ks_pc_player_channel();
+        for(ch=0;ch<16u;ch++){
+            uint32_t pkt;
+            if(target<16u && ch!=target)continue;
+            pkt=((uint32_t)0xc0u>>4)|((uint32_t)(0xc0u+ch)<<8)|((uint32_t)prog<<16);
+            ks_player_program_send(pkt,TO_USB|TO_BLE|TO_SYNTH);
+        }
     }
 }
 int ksm2_active(void){return m2_play.active;}
@@ -431,7 +439,10 @@ static void m2_emit(const uint8_t e[8]){
     }
     if(m2_play.program_locked && (status&0xf0u)==0xc0u)return;
     pkt=(status>>4)|((uint32_t)status<<8)|((uint32_t)e[5]<<16)|((uint32_t)e[6]<<24);
-    ctl_send(pkt,TO_USB|TO_BLE|TO_SYNTH);
+    if ((status & 0xF0u) == 0xC0u)
+        ks_player_program_send(pkt,TO_USB|TO_BLE|TO_SYNTH);
+    else
+        ctl_send(pkt,TO_USB|TO_BLE|TO_SYNTH);
 }
 int ksm2_poll(void){
     uint32_t ticks;unsigned budget=256;

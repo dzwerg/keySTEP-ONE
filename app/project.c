@@ -51,6 +51,52 @@ void ks_track_mode_set(uint8_t track,uint8_t mode)
     proj.rsv[6]=(uint8_t)((proj.rsv[6]&~mask)|((uint8_t)(mode<<shift)));
 }
 
+/* KSTEP_PC_OUT_V036: two separate, persistent Program Change switches.
+ * Reuse only project_t's remaining reserved bytes, preserving the exact
+ * existing flash object size, all 4 instrument presets and mute/solo state.
+ * rsv[8] marks migration; old project settings default EXT OFF, INT ON.
+ * rsv[7] bit0 = external USB/BLE PC; bit1 = internal Sonivox PC.
+ * rsv[7] bits2..6 = SONGPLAYER ALBUM INSTRUMENT PC channel (0..15, 16=ALL).
+ */
+#define KS_PC_MARKER 0x36u
+#define KS_PC_EXT 0x01u
+#define KS_PC_INT 0x02u
+static void ks_pc_defaults_if_needed(void)
+{
+    if(proj.rsv[8] != KS_PC_MARKER){
+        proj.rsv[7] = (uint8_t)(KS_PC_INT | (16u << 2)); /* defaults EXT OFF, INT ON, ALL */
+        proj.rsv[8] = KS_PC_MARKER;
+    }
+}
+uint8_t ks_pc_out_external(void)
+{
+    return proj.rsv[8] == KS_PC_MARKER ? !!(proj.rsv[7] & KS_PC_EXT) : 0u;
+}
+uint8_t ks_pc_out_internal(void)
+{
+    return proj.rsv[8] == KS_PC_MARKER ? !!(proj.rsv[7] & KS_PC_INT) : 1u;
+}
+void ks_pc_out_set(uint8_t external, uint8_t on)
+{
+    uint8_t bit = external ? KS_PC_EXT : KS_PC_INT;
+    ks_pc_defaults_if_needed();
+    if(on)proj.rsv[7] |= bit;
+    else proj.rsv[7] &= (uint8_t)~bit;
+}
+uint8_t ks_pc_player_channel(void)
+{
+    uint8_t ch;
+    if(proj.rsv[8]!=KS_PC_MARKER)return 16u; /* old project: ALL */
+    ch=(uint8_t)((proj.rsv[7]>>2)&31u);
+    return ch<=16u?ch:16u; /* invalid reserved value: safe default */
+}
+void ks_pc_player_channel_set(uint8_t ch)
+{
+    if(ch>16u)return;
+    ks_pc_defaults_if_needed();
+    proj.rsv[7]=(uint8_t)((proj.rsv[7]&0x83u)|(ch<<2));
+}
+
 /* KSTEP_HOME_TRACKS_V03: independent, initially empty MIDI tracks.
  * Drum sequencing remains proj.trk[0..3] / proj.seq_ch, default CH10.
  * No persistent-storage migration, no MIDI output from these tracks yet. */
@@ -111,6 +157,7 @@ void project_defaults(void)
         t->pat = euclid(t->steps, t->hits, t->rot);
     }
     ks_program_init();
+    ks_pc_defaults_if_needed();
 }
 
 static int project_valid(void)
@@ -150,6 +197,7 @@ int project_load(void)
             proj.in_mute = 1;
         }
         ks_program_init(); /* old stored projects: no forced flash write */
+        ks_pc_defaults_if_needed(); /* no project migration/format bump */
         return 0;
     }
     project_defaults();
