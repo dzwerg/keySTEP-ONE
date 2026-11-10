@@ -1,4 +1,15 @@
 # Changelog
+## v0.5.42 - 2026-11-10
+
+- ALBUM ONCE confirmed working on physical FM-1 hardware.
+- Removed the temporary red PLAYER debug line.
+- Preset selection and Program Change routing fixes retained.
+- LIVE PLAY, MUSIC DISK and track routing preserved.
+- FMHub metadata added.
+- Firmware identity changed to FM-1_734000542.
+- Release package rebuilt with the new identity; playback logic unchanged.
+- SHA-256: 795793084fda824a12642559732a39ad1006dce8c4d292a03b7a432ac67611c6
+
 
 ## v0.5.35-beta — 2026-11-01
 

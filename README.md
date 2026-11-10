@@ -2,9 +2,9 @@
 
 **Alternative controller, MIDI router and four-track pattern/song arranger firmware for the M-VAVE FM-1.**
 
-> **Beta v0.5.35** — community project, **not** an official M-VAVE release. Flash at your own risk. Back up your music and settings first.
+> **Beta v0.5.42** — community project, **not** an official M-VAVE release. Flash at your own risk. Back up your music and settings first.
 >
-> **Known issue:** ALBUM / ONCE may repeat instead of stopping after the final song. See [Known issues](docs/KNOWN_ISSUES.md).
+> **Hardware tested:** ALBUM ONCE stops correctly after the final song on FM-1 hardware.
 
 Built on [CTL-1](https://github.com/charlesvestal/fm1-ctl) by Charles Vestal and [fm1-base](https://github.com/charlesvestal/fm1-base) / [felucca-bsp](https://github.com/hugelton/felucca-bsp). This repository includes the modified application sources under MPL-2.0; the platform is obtained through Git submodules. See [CREDITS](CREDITS.md) and [LICENSING](LICENSING.md).
 
@@ -32,7 +32,7 @@ The black key alone **never** changes the playing pattern. Press a white key to 
 
 ## Downloads and installation
 
-Download **`keySTEP_ONE_v0.5.35_BETA.fwsc`** from the [GitHub Releases](../../releases) page. Do not flash a source ZIP.
+Download `keystep-one-0.5.42.fwsc` from GitHub Releases after publication. The release is currently a draft.
 
 Read [Flashing instructions](docs/FLASHING.md) and the [Beta release notes](CHANGELOG.md) before installing.
 
@@ -44,10 +44,10 @@ Read [Flashing instructions](docs/FLASHING.md) and the [Beta release notes](CHAN
 - [Credits](CREDITS.md) and [licenses](LICENSING.md)
 - [Changes](CHANGELOG.md)
 
-The upstream CTL-1 manual remains in [docs/UPSTREAM_CTL1_MANUAL.md](docs/UPSTREAM_CTL1_MANUAL.md) **for historical reference only**. Its controls are not a guide to keySTEP ONE v0.5.35.
+The upstream CTL-1 manual remains in [docs/UPSTREAM_CTL1_MANUAL.md](docs/UPSTREAM_CTL1_MANUAL.md) **for historical reference only**. Its controls are not a guide to keySTEP ONE v0.5.42.
 
 ## Deutsch
 
-**keySTEP ONE** ist eine alternative FM-1-Firmware mit vier Arranger-Tracks, LIVE PLAY, USB-/BLE-MIDI und internem GM-Synthesizer. Die LFO-Taste öffnet LIVE PLAY: 11 schwarze Banktasten und 16 weiße Auswahltasten ergeben 176 direkt spielbare Patterns. Der Wechsel wird zum nächsten Loop-Ende vorgemerkt. Diese Beta ist nicht vollständig getestet. Besonders **ALBUM ONCE** kann derzeit unerwartet wiederholen. [Anleitung](docs/USER_GUIDE.md) · [Flashen](docs/FLASHING.md).
+**keySTEP ONE** ist eine alternative FM-1-Firmware mit vier Arranger-Tracks, LIVE PLAY, USB-/BLE-MIDI und internem GM-Synthesizer. Die LFO-Taste öffnet LIVE PLAY: 11 schwarze Banktasten und 16 weiße Auswahltasten ergeben 176 direkt spielbare Patterns. Der Wechsel wird zum nächsten Loop-Ende vorgemerkt. Diese Beta ist nicht vollständig getestet. **ALBUM ONCE** wurde auf echter FM-1-Hardware erfolgreich getestet. [Anleitung](docs/USER_GUIDE.md) · [Flashen](docs/FLASHING.md).
 
 This is an independent hobby project; M-VAVE and FM-1 are trademarks of their respective owners.
