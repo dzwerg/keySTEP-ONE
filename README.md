@@ -51,3 +51,5 @@ The upstream CTL-1 manual remains in [docs/UPSTREAM_CTL1_MANUAL.md](docs/UPSTREA
 **keySTEP ONE** ist eine alternative FM-1-Firmware mit vier Arranger-Tracks, LIVE PLAY, USB-/BLE-MIDI und internem GM-Synthesizer. Die LFO-Taste öffnet LIVE PLAY: 11 schwarze Banktasten und 16 weiße Auswahltasten ergeben 176 direkt spielbare Patterns. Der Wechsel wird zum nächsten Loop-Ende vorgemerkt. Diese Beta ist nicht vollständig getestet. **ALBUM ONCE** wurde auf echter FM-1-Hardware erfolgreich getestet. [Anleitung](docs/USER_GUIDE.md) · [Flashen](docs/FLASHING.md).
 
 This is an independent hobby project; M-VAVE and FM-1 are trademarks of their respective owners.
+
+You can also try keySTEP ONE in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
